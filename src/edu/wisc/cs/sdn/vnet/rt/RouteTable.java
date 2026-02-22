@@ -39,8 +39,25 @@ public class RouteTable
 		{
 			/*****************************************************************/
 			/* TODO: Find the route entry with the longest prefix match	  */
+			RouteEntry longestMatch = null;
+			int minTrailingZeros = Integer.MAX_VALUE; 
+
+			for (RouteEntry entry : this.entries)
+			{
+				int subnet = entry.getMaskAddress() & entry.getDestinationAddress();
+				int ipSubnet = entry.getMaskAddress() & ip;
+				if (subnet != ipSubnet) {
+					continue;
+				}
+
+				int numTrailingZeros = Integer.numberOfTrailingZeros(entry.getMaskAddress());
+				if (numTrailingZeros < minTrailingZeros) {
+					minTrailingZeros = numTrailingZeros;
+					longestMatch = entry;
+				}
+			}
 			
-			return null;
+			return longestMatch;
 			
 			/*****************************************************************/
 		}
