@@ -5,6 +5,7 @@ import edu.wisc.cs.sdn.vnet.DumpFile;
 import edu.wisc.cs.sdn.vnet.Iface;
 
 import net.floodlightcontroller.packet.Ethernet;
+import net.floodlightcontroller.packet.IPv4;
 
 /**
  * @author Aaron Gember-Jacobson and Anubhavnidhi Abhashkumar
@@ -85,7 +86,62 @@ public class Router extends Device
 		/********************************************************************/
 		/* TODO: Handle packets                                             */
 		
+		// Check if frame contains IPv4 packet
+		if (etherPacket.getEtherType() != Ethernet.TYPE_IPv4) {
+			return;
+		}
 		
+		// Verify checksum
+		IPv4 payload = (IPv4) etherPacket.getPayload();
+		short checksum = payload.getChecksum();
+		payload.resetChecksum();
+		payload.serialize();
+		if (checksum != payload.getChecksum()) {
+			return;
+		}
+		
+		// Decrement TTL by 1
+		byte ttl = payload.getTtl();
+		ttl--;
+		if (ttl == 0) {
+			return; // drop if 0
+		}
+		payload.setTtl(ttl);
+
+		// Check for IP match
+		for (Iface iface : this.getInterfaces().values()) {
+			if (payload.getDestinationAddress() == iface.getIpAddress()) {
+				return; // drop if match
+			}
+		}
+
+		// Find longest prefix match in routing table
+		RouteEntry longestMatch = this.routeTable.lookup(payload.getDestinationAddress());
+		if (longestMatch == null) {
+			return; // drop if no match
+		}
+
+		// Find next hop MAC address
+		int nextHop = longestMatch.getGatewayAddress();
+		if (nextHop == 0) {
+			nextHop = payload.getDestinationAddress();
+		}
+
+		ArpEntry arpEntry = this.arpCache.lookup(nextHop);
+		if (arpEntry == null) {
+			return; // drop if no ARP entry for next hop
+		}	
+
+		// Set source and destination MAC addresses
+		etherPacket.setDestinationMACAddress(arpEntry.getMac().toBytes());
+		etherPacket.setSourceMACAddress(longestMatch.getInterface().getMacAddress().toBytes());
+
+		// Recompute checksum and send
+		payload.resetChecksum();
+		payload.serialize();
+		
+		sendPacket(etherPacket, longestMatch.getInterface());
+
 		/********************************************************************/
 	}
 }
