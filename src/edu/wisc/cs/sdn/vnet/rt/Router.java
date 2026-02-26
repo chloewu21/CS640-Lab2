@@ -85,12 +85,12 @@ public class Router extends Device
 		
 		/********************************************************************/
 		/* TODO: Handle packets                                             */
-		
+
 		// Check if frame contains IPv4 packet
 		if (etherPacket.getEtherType() != Ethernet.TYPE_IPv4) {
 			return;
 		}
-		
+	
 		// Verify checksum
 		IPv4 payload = (IPv4) etherPacket.getPayload();
 		short checksum = payload.getChecksum();
@@ -99,7 +99,7 @@ public class Router extends Device
 		if (checksum != payload.getChecksum()) {
 			return;
 		}
-		
+
 		// Decrement TTL by 1
 		byte ttl = payload.getTtl();
 		ttl--;
@@ -117,29 +117,51 @@ public class Router extends Device
 
 		// Find longest prefix match in routing table
 		RouteEntry longestMatch = this.routeTable.lookup(payload.getDestinationAddress());
+		System.out.println("Longest match: " + longestMatch);
 		if (longestMatch == null) {
 			return; // drop if no match
 		}
 
-		// Find next hop MAC address
+		if (longestMatch.getInterface().getName().equals(inIface.getName())) {
+			return; // drop if outgoing interface is same as incoming
+		}
+
+
+		// Set source MAC address
+		System.out.println("Outgoing interface: " + longestMatch.getInterface().getName());
+		Iface outIface = this.interfaces.get(longestMatch.getInterface().getName());
+		System.out.println("Interfaces: " + this.getInterfaces());
+		System.out.println("Outiface info:  " + IPv4.fromIPv4Address(this.getInterface(outIface.getName()).getIpAddress()));
+		if (outIface == null) {
+			System.out.println("Interface null");
+			return;
+		}
+		if (this.getInterface(outIface.getName()).getMacAddress() == null) {
+			System.out.println("MAC address null");
+			return;
+		}
+
+		etherPacket.setSourceMACAddress(this.getInterface(outIface.getName()).getMacAddress().toBytes());
+
+		// Set destination MAC address
 		int nextHop = longestMatch.getGatewayAddress();
 		if (nextHop == 0) {
 			nextHop = payload.getDestinationAddress();
 		}
 
+		System.out.println("ARP " + IPv4.fromIPv4Address(nextHop));
 		ArpEntry arpEntry = this.arpCache.lookup(nextHop);
 		if (arpEntry == null) {
+			System.out.println("No ARP entry for next hop");
 			return; // drop if no ARP entry for next hop
 		}	
 
-		// Set source and destination MAC addresses
 		etherPacket.setDestinationMACAddress(arpEntry.getMac().toBytes());
-		etherPacket.setSourceMACAddress(longestMatch.getInterface().getMacAddress().toBytes());
 
 		// Recompute checksum and send
 		payload.resetChecksum();
 		payload.serialize();
-		
+		etherPacket.setPayload(payload);
 		sendPacket(etherPacket, longestMatch.getInterface());
 
 		/********************************************************************/
